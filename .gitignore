@@ -60,7 +60,58 @@ poetry.lock
 .pyre/
 
 # VS Code
+
+# VS Code
 .vscode/
+# VS Code workspace storage
+.history/
+.vscode-test/
+.vscode-remote/
+.vscode-server/
+.vscode-oss-dev/
+.vscode-insiders/
+
+# WebStorm
+.idea/
+.idea_modules/
+.idea_workspace.xml
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries
+.idea/**/shelf
+.idea/**/dataSources/
+.idea/**/dataSources.ids
+.idea/**/dataSources.local.xml
+.idea/**/sqlDataSources.xml
+.idea/**/dynamic.xml
+.idea/**/uiDesigner.xml
+.idea/**/dbnavigator.xml
+.idea/**/webServers.xml
+.idea/**/deployment.xml
+.idea/**/deploymentTarget.xml
+.idea/**/runConfigurations/
+.idea/**/gradle.xml
+.idea/**/libraries/
+.idea/**/modules.xml
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries/
+.idea/**/shelf/
+.idea/**/dataSources/
+.idea/**/dataSources.ids
+.idea/**/dataSources.local.xml
+.idea/**/sqlDataSources.xml
+.idea/**/dynamic.xml
+.idea/**/uiDesigner.xml
+.idea/**/dbnavigator.xml
+.idea/**/webServers.xml
+.idea/**/deployment.xml
+.idea/**/deploymentTarget.xml
+.idea/**/runConfigurations/
+.idea/**/gradle.xml
+.idea/**/libraries/
 
 # Local env
 .env
