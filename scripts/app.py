@@ -48,7 +48,7 @@ TABLE_TEMPLATE = '''
                 {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
                 {% if show_edit %}
                 <td>
-                    <a class="edit-link" href="{{ url_for('edit_more_info', queue_uid=row[0]) }}">Edit More Info</a>
+                    <a class="edit-link" href="{{ edit_url_prefix }}/{{ row[0] }}">Edit</a>
                 </td>
                 {% endif %}
             </tr>
@@ -190,7 +190,7 @@ def queue_history():
         <input type="text" name="query" value="{}" style="width:60%;padding:6px;" />
         <input type="submit" value="Run Query" style="padding:6px 12px;" />
     </form>'''.format(query.replace('"', '&quot;'))
-    table_html = render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=show_edit)
+    table_html = render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=show_edit, edit_url_prefix='/queue_history/edit')
     return query_form + table_html
 
 @app.route("/queue_history/edit/<int:queue_uid>", methods=["GET", "POST"])
@@ -221,16 +221,59 @@ def edit_more_info(queue_uid):
         conn.close()
     return render_template_string(EDIT_TEMPLATE, queue_uid=queue_uid, more_info=more_info, treatment=treatment, comment=comment, message=message, error=error)
 
+OPD_EDIT_TEMPLATE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>OPD History - Content Editor</title>
+    <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+    <script>
+      tinymce.init({
+        selector: '#content',
+        height: 350,
+        menubar: false,
+        plugins: 'lists link code',
+        toolbar: 'undo redo | bold italic underline | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link | code',
+        content_style: 'body { font-family:Arial,sans-serif; font-size:16px; }'
+      });
+    </script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .container { max-width: 700px; margin: 40px auto; }
+        label { font-weight: bold; }
+        .row { margin-bottom: 20px; }
+        .btn { padding: 8px 18px; font-size: 1em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Edit Content (history_id={{ history_id }})</h1>
+        <form method="post">
+            <div class="row">
+                <label for="content">Content:</label><br>
+                <textarea name="content" id="content">{{ content|safe }}</textarea>
+            </div>
+            <button class="btn" type="submit">Save</button>
+            <a href="/opd_history" class="btn">Back to List</a>
+        </form>
+        {% if message %}<div style="color: green;">{{ message }}</div>{% endif %}
+        {% if error %}<div style="color: red;">{{ error }}</div>{% endif %}
+    </div>
+</body>
+</html>
+'''
+
 @app.route("/opd_history", methods=["GET", "POST"])
 def opd_history():
-    default_query = "SELECT * FROM opd_history ORDER BY opd_uid DESC LIMIT 100"
+    default_query = "SELECT history_id, content FROM opd_history ORDER BY opd_uid DESC LIMIT 100"
     query = default_query
     if request.method == "POST":
         query = request.form.get("query", default_query)
 
-    results= []
+    results = []
+    columns = []
     error = None
-    show_edit = True
     try:
         conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME)
         with conn.cursor() as cur:
@@ -243,14 +286,35 @@ def opd_history():
         conn.close()
     except Exception as e:
         error = str(e)
-    # Add a query form above the table
     query_form = '''<form method="post" style="margin-bottom:20px;">
         <label>Query:</label>
         <input type="text" name="query" value="{}" style="width:60%;padding:6px;" />
         <input type="submit" value="Run Query" style="padding:6px 12px;" />
     </form>'''.format(query.replace('"', '&quot;'))
-    table_html = render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=show_edit)
+    table_html = render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=True, edit_url_prefix='/opd_history/edit')
     return query_form + table_html
+
+@app.route("/opd_history/edit/<int:history_id>", methods=["GET", "POST"])
+def opd_edit_content(history_id):
+    message = error = None
+    content = ""
+    conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME)
+    try:
+        with conn.cursor() as cur:
+            if request.method == "POST":
+                content = request.form.get("content", "")
+                cur.execute("UPDATE opd_history SET content=%s WHERE history_id=%s", (content.encode('utf-8'), history_id))
+                conn.commit()
+                message = "Saved successfully."
+            cur.execute("SELECT content FROM opd_history WHERE history_id=%s", (history_id,))
+            row = cur.fetchone()
+            if row and row[0]:
+                content = row[0].decode('utf-8', errors='replace') if isinstance(row[0], (bytes, bytearray)) else str(row[0])
+    except Exception as e:
+        error = str(e)
+    finally:
+        conn.close()
+    return render_template_string(OPD_EDIT_TEMPLATE, history_id=history_id, content=content, message=message, error=error)
 
 if __name__ == "__main__":
     app.run(debug=True)
