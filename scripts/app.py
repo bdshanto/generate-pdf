@@ -71,12 +71,31 @@ EDIT_TEMPLATE = '''
     <script>
       tinymce.init({
         selector: '#more_info',
-        height: 350,
+        height: 250,
         menubar: false,
         plugins: 'lists link code',
         toolbar: 'undo redo | bold italic underline | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link | code',
         content_style: 'body { font-family:Arial,sans-serif; font-size:16px; }'
       });
+
+      tinymce.init({
+        selector: '#treatment',
+        height: 250,
+        menubar: false,
+        plugins: 'lists link code',
+        toolbar: 'undo redo | bold italic underline | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link | code',
+        content_style: 'body { font-family:Arial,sans-serif; font-size:16px; }'
+      });
+
+      tinymce.init({
+        selector: '#comment',
+        height: 250,
+        menubar: false,
+        plugins: 'lists link code',
+        toolbar: 'undo redo | bold italic underline | forecolor backcolor | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link | code',
+        content_style: 'body { font-family:Arial,sans-serif; font-size:16px; }'
+      });
+
     </script>
     <style>
         body { font-family: Arial, sans-serif; }
@@ -94,6 +113,15 @@ EDIT_TEMPLATE = '''
                 <label for="more_info">More Info:</label><br>
                 <textarea name="more_info" id="more_info">{{ more_info|safe }}</textarea>
             </div>
+
+              <div class="row">
+                <label for="treatment">Treatment:</label><br>
+                <textarea name="treatment" id="treatment">{{ treatment|safe }}</textarea>
+            </div>
+            <div class="row">
+                <label for="comment">Comment:</label><br>
+                <textarea name="comment" id="comment">{{ comment|safe }}</textarea>
+            </div>
             <button class="btn" type="submit">Save</button>
             <a href="/queue_history" class="btn">Back to List</a>
         </form>
@@ -102,6 +130,8 @@ EDIT_TEMPLATE = '''
     </div>
 </body>
 </html>
+
+
 '''
 
 
@@ -167,23 +197,60 @@ def queue_history():
 def edit_more_info(queue_uid):
     message = error = None
     more_info = ""
+    comment = ""
+    treatment = ""
     conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME)
     try:
         with conn.cursor() as cur:
             if request.method == "POST":
                 more_info = request.form.get("more_info", "")
-                cur.execute("UPDATE queue_history SET more_info=%s WHERE queue_uid=%s", (more_info.encode('utf-8'), queue_uid))
+                treatment = request.form.get("treatment", "")
+                comment = request.form.get("comment", "")
+                cur.execute("UPDATE queue_history SET more_info=%s, treatment=%s, comment=%s WHERE queue_uid=%s", (more_info.encode('utf-8'), treatment.encode('utf-8'), comment.encode('utf-8'), queue_uid))
                 conn.commit()
                 message = "Saved successfully."
-            cur.execute("SELECT more_info FROM queue_history WHERE queue_uid=%s", (queue_uid,))
+            cur.execute("SELECT more_info,treatment,comment FROM queue_history WHERE queue_uid=%s", (queue_uid,))
             row = cur.fetchone()
             if row and row[0]:
                 more_info = row[0].decode('utf-8', errors='replace') if isinstance(row[0], (bytes, bytearray)) else str(row[0])
+                treatment = row[1].decode('utf-8', errors='replace') if isinstance(row[1], (bytes, bytearray)) else str(row[1])
+                comment = row[2].decode('utf-8', errors='replace') if isinstance(row[2], (bytes, bytearray)) else str(row[2])
     except Exception as e:
         error = str(e)
     finally:
         conn.close()
-    return render_template_string(EDIT_TEMPLATE, queue_uid=queue_uid, more_info=more_info, message=message, error=error)
+    return render_template_string(EDIT_TEMPLATE, queue_uid=queue_uid, more_info=more_info, treatment=treatment, comment=comment, message=message, error=error)
+
+@app.route("/opd_history", methods=["GET", "POST"])
+def opd_history():
+    default_query = "SELECT * FROM opd_history ORDER BY opd_uid DESC LIMIT 100"
+    query = default_query
+    if request.method == "POST":
+        query = request.form.get("query", default_query)
+
+    results= []
+    error = None
+    show_edit = True
+    try:
+        conn = pymysql.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, db=DB_NAME)
+        with conn.cursor() as cur:
+            cur.execute(query)
+            results = cur.fetchall()
+            columns = [desc[0].replace('_', ' ') for desc in cur.description] if cur.description else []
+            def convert_row(row):
+                return [cell.decode('utf-8', errors='replace') if isinstance(cell, (bytes, bytearray)) else cell for cell in row]
+            results = [convert_row(row) for row in results]
+        conn.close()
+    except Exception as e:
+        error = str(e)
+    # Add a query form above the table
+    query_form = '''<form method="post" style="margin-bottom:20px;">
+        <label>Query:</label>
+        <input type="text" name="query" value="{}" style="width:60%;padding:6px;" />
+        <input type="submit" value="Run Query" style="padding:6px 12px;" />
+    </form>'''.format(query.replace('"', '&quot;'))
+    table_html = render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=show_edit)
+    return query_form + table_html
 
 if __name__ == "__main__":
     app.run(debug=True)
