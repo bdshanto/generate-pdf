@@ -63,7 +63,8 @@ def decode_blob(val):
 
 
 def txt(val):
-    return str(decode_blob(val)).strip() if val is not None else ""
+    s = str(decode_blob(val)).strip() if val is not None else ""
+    return s.replace("\r", " ").replace("\n", " ")
 
 
 def fmt_dt(val):
@@ -91,7 +92,7 @@ class _StripHTML(HTMLParser):
         self._parts.append(html.unescape(f"&#{name};"))
 
     def result(self):
-        return re.sub(r"[ \t]+", " ", " ".join(self._parts)).strip()
+        return re.sub(r"\s+", " ", " ".join(self._parts)).strip()
 
 
 def strip_html(val):
