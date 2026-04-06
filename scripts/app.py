@@ -184,14 +184,7 @@ def queue_history():
         conn.close()
     except Exception as e:
         error = str(e)
-    # Add a query form above the table
-    query_form = '''<form method="post" style="margin-bottom:20px;">
-        <label>Query:</label>
-        <input type="text" name="query" value="{}" style="width:60%;padding:6px;" />
-        <input type="submit" value="Run Query" style="padding:6px 12px;" />
-    </form>'''.format(query.replace('"', '&quot;'))
-    table_html = render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=show_edit, edit_url_prefix='/queue_history/edit')
-    return query_form + table_html
+    return render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=show_edit, edit_url_prefix='/queue_history/edit')
 
 @app.route("/queue_history/edit/<int:queue_uid>", methods=["GET", "POST"])
 def edit_more_info(queue_uid):
@@ -266,7 +259,7 @@ OPD_EDIT_TEMPLATE = '''
 
 @app.route("/opd_history", methods=["GET", "POST"])
 def opd_history():
-    default_query = "SELECT history_id, content FROM opd_history ORDER BY opd_uid DESC LIMIT 100"
+    default_query = "SELECT * FROM opd_history ORDER BY opd_id DESC LIMIT 100"
     query = default_query
     if request.method == "POST":
         query = request.form.get("query", default_query)
@@ -286,13 +279,7 @@ def opd_history():
         conn.close()
     except Exception as e:
         error = str(e)
-    query_form = '''<form method="post" style="margin-bottom:20px;">
-        <label>Query:</label>
-        <input type="text" name="query" value="{}" style="width:60%;padding:6px;" />
-        <input type="submit" value="Run Query" style="padding:6px 12px;" />
-    </form>'''.format(query.replace('"', '&quot;'))
-    table_html = render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=True, edit_url_prefix='/opd_history/edit')
-    return query_form + table_html
+    return render_template_string(TABLE_TEMPLATE, columns=columns, rows=results, query=query, error=error, show_edit=True, edit_url_prefix='/opd_history/edit')
 
 @app.route("/opd_history/edit/<int:history_id>", methods=["GET", "POST"])
 def opd_edit_content(history_id):
