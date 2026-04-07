@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 output/*
+Dump20260406.sql
 
 # C extensions
 *.so
