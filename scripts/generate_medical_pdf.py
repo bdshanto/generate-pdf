@@ -53,6 +53,51 @@ _C_BLACK      = (0,   0,   0)
 # Utility helpers
 # ---------------------------------------------------------------------------
 
+# Characters Leelawadee doesn't have a glyph for — map the common ones to
+# readable ASCII equivalents and silently drop the rest.
+_CHAR_MAP = {
+    '\u2192': '->',   # →
+    '\u2190': '<-',   # ←
+    '\u21d2': '=>',   # ⇒
+    '\u21d0': '<=',   # ⇐
+    '\u2191': '^',    # ↑
+    '\u2193': 'v',    # ↓
+    '\u2014': '-',    # em dash
+    '\u2013': '-',    # en dash
+    '\u2018': "'",   # left single quote
+    '\u2019': "'",   # right single quote
+    '\u201c': '"',   # left double quote
+    '\u201d': '"',   # right double quote
+    '\u2026': '...',  # ellipsis
+    '\u2022': '*',    # bullet •
+    '\u25cf': '*',    # black circle
+    '\u2713': '/',    # check mark ✓
+    '\u2715': 'x',    # cross ✕
+}
+
+
+def _sanitize(s: str) -> str:
+    """Replace or remove characters outside Leelawadee's glyph coverage."""
+    if not s:
+        return s
+    # Apply known mappings first
+    for ch, replacement in _CHAR_MAP.items():
+        s = s.replace(ch, replacement)
+    # Keep only chars in ranges Leelawadee covers:
+    #   Basic ASCII (0020-007E), Latin-1 Supplement (00A0-00FF),
+    #   Latin Extended A/B (0100-024F), Thai (0E00-0E7F).
+    # Everything else (arrows, symbols, emoji, etc.) is dropped.
+    result = []
+    for ch in s:
+        cp = ord(ch)
+        if (0x0020 <= cp <= 0x007E
+                or 0x00A0 <= cp <= 0x00FF
+                or 0x0100 <= cp <= 0x024F
+                or 0x0E00 <= cp <= 0x0E7F):
+            result.append(ch)
+    return ''.join(result)
+
+
 def decode_blob(val):
     if isinstance(val, (bytes, bytearray)):
         try:
@@ -64,7 +109,8 @@ def decode_blob(val):
 
 def txt(val):
     s = str(decode_blob(val)).strip() if val is not None else ""
-    return s.replace("\r", " ").replace("\n", " ")
+    s = s.replace("\r", " ").replace("\n", " ")
+    return _sanitize(s)
 
 
 def fmt_dt(val):
@@ -92,7 +138,7 @@ class _StripHTML(HTMLParser):
         self._parts.append(html.unescape(f"&#{name};"))
 
     def result(self):
-        return re.sub(r"\s+", " ", " ".join(self._parts)).strip()
+        return _sanitize(re.sub(r"\s+", " ", " ".join(self._parts)).strip())
 
 
 def strip_html(val):
@@ -129,7 +175,7 @@ def get_last_10_pets(conn):
         WHERE o.opd_status = 1
         GROUP BY p.uid
         ORDER BY last_visit DESC
-        LIMIT 10
+        LIMIT 1000
     """
     with conn.cursor() as cur:
         cur.execute(sql)
