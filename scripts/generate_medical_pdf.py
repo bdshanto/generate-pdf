@@ -153,6 +153,66 @@ def strip_html(val):
         return raw
 
 
+def _sanitize_multiline(s: str) -> str:
+    """Like _sanitize but preserves newline structure."""
+    if not s:
+        return s
+    lines = s.split("\n")
+    cleaned = [_sanitize(re.sub(r"[ \t]+", " ", ln).strip()) for ln in lines]
+    result = "\n".join(cleaned)
+    result = re.sub(r"\n{3,}", "\n\n", result)   # collapse excess blank lines
+    return result.strip()
+
+
+class _RichHTMLParser(HTMLParser):
+    """HTML parser that converts block/list tags to newlines and bullets."""
+    _BLOCK_END = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+                  "tr", "blockquote"}
+
+    def __init__(self):
+        super().__init__()
+        self._parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "br":
+            self._parts.append("\n")
+        elif tag == "li":
+            self._parts.append("\n- ")
+
+    def handle_endtag(self, tag):
+        if tag in self._BLOCK_END:
+            self._parts.append("\n")
+        elif tag == "li":
+            self._parts.append("\n")
+
+    def handle_data(self, data):
+        self._parts.append(data)
+
+    def handle_entityref(self, name):
+        import html
+        self._parts.append(html.unescape(f"&{name};"))
+
+    def handle_charref(self, name):
+        import html
+        self._parts.append(html.unescape(f"&#{name};"))
+
+    def result(self):
+        return _sanitize_multiline("".join(self._parts))
+
+
+def strip_html_rich(val):
+    """Strip CKEditor HTML, preserving paragraphs and list items as plain text."""
+    raw = decode_blob(val)
+    if not raw:
+        return ""
+    try:
+        p = _RichHTMLParser()
+        p.feed(raw)
+        return p.result()
+    except Exception:
+        return strip_html(val)
+
+
 # ---------------------------------------------------------------------------
 # Database helpers
 # ---------------------------------------------------------------------------
@@ -242,6 +302,119 @@ def get_labs(conn, opd_id):
             "SELECT ol.product, ol.timestamp, ol.lab_status "
             "FROM opd_lab ol WHERE ol.opd_id = %s AND ol.status = 1 "
             "ORDER BY ol.timestamp", (opd_id,))
+        return cur.fetchall()
+
+
+# -- Admit helpers -----------------------------------------------------------
+
+def get_admit_histories(conn, pet_uid):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ah.admit_history_id, ah.admit_since_date, ah.admit_to_date, "
+            "ah.admit_status, ast.admit_status_name, ah.doctor_id, "
+            "ah.history, ah.physical, ah.differential, ah.final, "
+            "ah.prognosis, ah.suggestion, ah.reportlab, ah.admit_status_text "
+            "FROM admit_history ah "
+            "LEFT JOIN admit_status ast ON ast.admit_status_id = ah.admit_status "
+            "WHERE ah.pet_uid = %s "
+            "ORDER BY ah.admit_since_date DESC", (pet_uid,))
+        return cur.fetchall()
+
+
+def get_admit_labs(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT product, timestamp, lab_status "
+            "FROM admit_lab "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
+        return cur.fetchall()
+
+
+def get_admit_monitor_body(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT monitor_body_f_time, monitor_body_f, "
+            "monitor_body_hr_time, monitor_body_hr, "
+            "monitor_body_rr_time, monitor_body_rr, "
+            "monitor_body_bp_time, monitor_body_bp, "
+            "monitor_body_mm_time, monitor_body_mm, "
+            "monitor_body_crt_time, monitor_body_crt, "
+            "monitor_body_uop_time, monitor_body_uop, "
+            "veterinary, assistant, timestamp "
+            "FROM admit_monitor_body "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
+        return cur.fetchall()
+
+
+def get_admit_monitor_eat(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT monitor_eat_time, monitor_eat_type, monitor_eat_isme, "
+            "monitor_eat_cc, veterinary, assistant, timestamp "
+            "FROM admit_monitor_eat "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
+        return cur.fetchall()
+
+
+def get_admit_monitor_general(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT monitor_general_urine_time, monitor_general_urine, monitor_general_urine_cc, "
+            "monitor_general_vomit_time, monitor_general_vomit, monitor_general_vomit_cc, "
+            "monitor_general_oh_time, monitor_general_oh, monitor_general_oh_cc, "
+            "monitor_general_cough_time, monitor_general_cough, "
+            "monitor_general_coma_time, monitor_general_coma, "
+            "veterinary, assistant, timestamp "
+            "FROM admit_monitor_general "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
+        return cur.fetchall()
+
+
+def get_admit_monitor_other(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT monitor_other_time, monitor_other_content, "
+            "veterinary, assistant, timestamp "
+            "FROM admit_monitor_other "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
+        return cur.fetchall()
+
+
+def get_admit_monitor_plan(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT monitor_plan_time_set1, monitor_plan_time_set2, "
+            "monitor_plan_content, veterinary, assistant, timestamp "
+            "FROM admit_monitor_plan "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
+        return cur.fetchall()
+
+
+def get_admit_monitor_talk(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT monitor_talk_time, monitor_talk_content, "
+            "veterinary, assistant, timestamp "
+            "FROM admit_monitor_talk "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
+        return cur.fetchall()
+
+
+def get_admit_monitor_treatment(conn, admit_history_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT monitor_other_time, monitor_other_content, "
+            "veterinary, assistant, timestamp "
+            "FROM admit_monitor_treatment "
+            "WHERE admit_history_id = %s AND status = 1 "
+            "ORDER BY timestamp", (admit_history_id,))
         return cur.fetchall()
 
 
@@ -576,6 +749,168 @@ class MedicalPDF(FPDF):
         self.text_block(strip_html(opd.get("suggestion")))
         self.ln(3)
 
+    def render_admit(self, idx, ah, labs, body_rows, eat_rows,
+                     general_rows, other_rows, plan_rows, talk_rows, treatment_rows):
+        ahid      = ah["admit_history_id"]
+        since     = fmt_dt(ah.get("admit_since_date"))
+        to        = fmt_dt(ah.get("admit_to_date")) or "-"
+        status    = txt(ah.get("admit_status_name") or ah.get("admit_status_text")) or "-"
+
+        # Admit header bar
+        self.set_font("Thai", "B", 11)
+        self._c(_C_DARK_BLUE, fill=True)
+        self._c(_C_WHITE, text=True)
+        self.cell(self.pw, 9,
+                  f"Admit {idx}  |  #{ahid}  |  {since} -> {to}  |  {status}",
+                  fill=True, new_x="LMARGIN", new_y="NEXT")
+        self._c(_C_BLACK, text=True)
+        self.ln(2)
+
+        # History / Physical / Differential / Final
+        for label, field in [
+            ("ประวัติ (History)",               strip_html_rich(ah.get("history"))),
+            ("การตรวจร่างกาย (Physical)",        strip_html_rich(ah.get("physical"))),
+            ("Differential Diagnosis",           strip_html_rich(ah.get("differential"))),
+            ("Final Diagnosis",                  strip_html_rich(ah.get("final"))),
+            ("การพยากรณ์โรค (Prognosis)",        txt(ah.get("prognosis"))),
+        ]:
+            if field and field.strip():
+                self.sub_label(label)
+                self.text_block(field.strip())
+
+        # 1. Lab
+        self.sub_label("1. รายงาน Lab / LIS")
+        self.render_table(
+            ["รายการ Lab / LIS", "วันที่", "สถานะ"],
+            [(strip_html(l.get("product")), fmt_dt(l.get("timestamp")),
+              txt(l.get("lab_status"))) for l in labs],
+            col_widths=[self.pw * 0.60, self.pw * 0.28, self.pw * 0.12],
+        )
+        if strip_html(ah.get("reportlab")):
+            self.text_block(strip_html(ah.get("reportlab")))
+
+        # 2. Monitor: Body vitals
+        self.sub_label("2. ติดตามสัญญาณชีพ (Body Monitor)")
+        self.render_table(
+            ["เวลา", "T", "HR", "RR", "BP", "MM", "CRT", "UOP", "ผู้ดูแล"],
+            [
+                (
+                    txt(r.get("monitor_body_f_time") or r.get("timestamp")),
+                    txt(r.get("monitor_body_f")),
+                    txt(r.get("monitor_body_hr")),
+                    txt(r.get("monitor_body_rr")),
+                    txt(r.get("monitor_body_bp")),
+                    txt(r.get("monitor_body_mm")),
+                    txt(r.get("monitor_body_crt")),
+                    txt(r.get("monitor_body_uop")),
+                    txt(r.get("veterinary")),
+                )
+                for r in body_rows
+            ],
+            col_widths=[self.pw*0.10, self.pw*0.07, self.pw*0.07, self.pw*0.07,
+                        self.pw*0.10, self.pw*0.07, self.pw*0.07, self.pw*0.10,
+                        self.pw*0.35],
+        )
+
+        # 3. Monitor: Eat
+        self.sub_label("3. บันทึกการกินอาหาร (Eat Monitor)")
+        self.render_table(
+            ["เวลา", "ประเภทอาหาร", "ปริมาณ", "หมายเหตุ", "ผู้ดูแล"],
+            [
+                (
+                    txt(r.get("monitor_eat_time")),
+                    txt(r.get("monitor_eat_type")),
+                    txt(r.get("monitor_eat_isme")),
+                    txt(r.get("monitor_eat_cc")),
+                    txt(r.get("veterinary")),
+                )
+                for r in eat_rows
+            ],
+            col_widths=[self.pw*0.10, self.pw*0.24, self.pw*0.15,
+                        self.pw*0.31, self.pw*0.20],
+        )
+
+        # 4. Monitor: General
+        self.sub_label("4. สังเกตอาการทั่วไป (General Monitor)")
+        self.render_table(
+            ["เวลา", "ปัสสาวะ", "อาเจียน", "อื่นๆ", "ไอ", "หมดสติ", "ผู้ดูแล"],
+            [
+                (
+                    txt(r.get("monitor_general_urine_time")),
+                    f"{txt(r.get('monitor_general_urine'))} {txt(r.get('monitor_general_urine_cc'))}".strip(),
+                    f"{txt(r.get('monitor_general_vomit'))} {txt(r.get('monitor_general_vomit_cc'))}".strip(),
+                    f"{txt(r.get('monitor_general_oh'))} {txt(r.get('monitor_general_oh_cc'))}".strip(),
+                    txt(r.get("monitor_general_cough")),
+                    txt(r.get("monitor_general_coma")),
+                    txt(r.get("veterinary")),
+                )
+                for r in general_rows
+            ],
+            col_widths=[self.pw*0.09, self.pw*0.15, self.pw*0.14, self.pw*0.14,
+                        self.pw*0.09, self.pw*0.14, self.pw*0.25],
+        )
+
+        # 5. Monitor: Other
+        self.sub_label("5. บันทึกอื่นๆ (Other Monitor)")
+        self.render_table(
+            ["เวลา", "รายละเอียด", "ผู้ดูแล"],
+            [
+                (txt(r.get("monitor_other_time")),
+                 txt(r.get("monitor_other_content")),
+                 txt(r.get("veterinary")))
+                for r in other_rows
+            ],
+            col_widths=[self.pw*0.12, self.pw*0.63, self.pw*0.25],
+        )
+
+        # 6. Monitor: Plan
+        self.sub_label("6. แผนการดูแล (Monitor Plan)")
+        self.render_table(
+            ["ช่วงเวลา", "แผนการดูแล", "ผู้ดูแล"],
+            [
+                (
+                    f"{txt(r.get('monitor_plan_time_set1'))}-{txt(r.get('monitor_plan_time_set2'))}",
+                    txt(r.get("monitor_plan_content")),
+                    txt(r.get("veterinary")),
+                )
+                for r in plan_rows
+            ],
+            col_widths=[self.pw*0.18, self.pw*0.57, self.pw*0.25],
+        )
+
+        # 7. Monitor: Talk
+        self.sub_label("7. บันทึกการสื่อสาร (Talk / Communication)")
+        self.render_table(
+            ["เวลา", "รายละเอียด", "ผู้ดูแล"],
+            [
+                (txt(r.get("monitor_talk_time")),
+                 txt(r.get("monitor_talk_content")),
+                 txt(r.get("veterinary")))
+                for r in talk_rows
+            ],
+            col_widths=[self.pw*0.12, self.pw*0.63, self.pw*0.25],
+        )
+
+        # 8. Monitor: Treatment
+        self.sub_label("8. บันทึกการรักษา (Treatment Monitor)")
+        self.render_table(
+            ["เวลา", "รายละเอียด", "ผู้ดูแล"],
+            [
+                (txt(r.get("monitor_other_time")),
+                 txt(r.get("monitor_other_content")),
+                 txt(r.get("veterinary")))
+                for r in treatment_rows
+            ],
+            col_widths=[self.pw*0.12, self.pw*0.63, self.pw*0.25],
+        )
+
+        # Suggestion / discharge notes
+        if strip_html(ah.get("suggestion")):
+            self.sub_label("คำแนะนำ / Discharge Notes")
+            self.text_block(strip_html(ah.get("suggestion")))
+
+        self.ln(3)
+
 
 # ---------------------------------------------------------------------------
 # Per-pet PDF generation
@@ -603,6 +938,26 @@ def generate_pdf_for_pet(conn, pet):
         labs       = get_labs(conn, opd["opd_id"])
         pdf.render_opd(idx, opd, pe, vaccines, prognoses, treatments, labs)
 
+    # Admit histories
+    admits = get_admit_histories(conn, pet_uid)
+    if admits:
+        pdf.add_page()
+        pdf.section_banner("ประวัติการ Admit / Hospitalization Records")
+        pdf.ln(2)
+        for aidx, ah in enumerate(admits, start=1):
+            ahid = ah["admit_history_id"]
+            pdf.render_admit(
+                aidx, ah,
+                labs          = get_admit_labs(conn, ahid),
+                body_rows     = get_admit_monitor_body(conn, ahid),
+                eat_rows      = get_admit_monitor_eat(conn, ahid),
+                general_rows  = get_admit_monitor_general(conn, ahid),
+                other_rows    = get_admit_monitor_other(conn, ahid),
+                plan_rows     = get_admit_monitor_plan(conn, ahid),
+                talk_rows     = get_admit_monitor_talk(conn, ahid),
+                treatment_rows= get_admit_monitor_treatment(conn, ahid),
+            )
+
     # Footer note
     pdf.set_font("Thai", "", 8)
     pdf.set_text_color(*_C_GREY)
@@ -615,7 +970,8 @@ def generate_pdf_for_pet(conn, pet):
     safe_id  = "".join(c for c in petid if c.isalnum() or c in "-_")
     out_path = os.path.join(OUTPUT_DIR, f"medical_record_{safe_id}.pdf")
     pdf.output(out_path)
-    print(f"  [done] {petid} -- {len(opds)} OPD(s) -> {out_path}")
+    admit_count = len(get_admit_histories(conn, pet_uid))
+    print(f"  [done] {petid} -- {len(opds)} OPD(s), {admit_count} Admit(s) -> {out_path}")
 
 
 # ---------------------------------------------------------------------------
