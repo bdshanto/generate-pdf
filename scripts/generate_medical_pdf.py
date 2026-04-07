@@ -175,7 +175,7 @@ def get_last_10_pets(conn):
         WHERE o.opd_status = 1
         GROUP BY p.uid
         ORDER BY last_visit DESC
-        LIMIT 1000
+        LIMIT 100
     """
     with conn.cursor() as cur:
         cur.execute(sql)
@@ -419,12 +419,30 @@ class MedicalPDF(FPDF):
             self._c(_C_BORDER, draw=True)
             self.set_line_width(0.2)
             self.set_dash_pattern()
-            self.set_font("Thai", "B", 10)
-            self.cell(LW, 7, label, border=1, fill=True)
+
+            y_start = self.get_y()
+            x_start = self.get_x()
+            value_w = self.pw - LW
+            value_str = str(value)  # no [:100] truncation
+
+            # ── Step 1: Draw value multi_cell first to let it expand ──
             self.set_font("Thai", "", 10)
             self._c(_C_LIGHT_BLUE, fill=True)
-            self.cell(self.pw - LW, 7, str(value)[:100], border=1, fill=True)
-            self.ln()
+            self.set_xy(x_start + LW, y_start)
+            self.multi_cell(value_w, 7, value_str, border=1, fill=True)
+            y_end = self.get_y()
+
+            # ── Step 2: Go back and draw label with exact measured height ──
+            label_h = y_end - y_start
+            self.set_xy(x_start, y_start)
+            self.set_font("Thai", "B", 10)
+            self._c(_C_ROW_HEAD, fill=True)
+            self.cell(LW, label_h, label, border=1, fill=True, align="L")
+
+            # ── Step 3: Restore cursor to below the row ──
+            self.set_xy(x_start, y_end)
+
+
 
         self.doc_title("เวชระเบียนสัตว์ป่วย  —  Medical Record")
         self.section_banner("ข้อมูลผู้ป่วย / Patient Information")
