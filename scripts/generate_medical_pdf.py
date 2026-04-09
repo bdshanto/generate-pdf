@@ -490,7 +490,15 @@ class MedicalPDF(FPDF):
             self.empty_row()
             return
         self.set_font("Thai", "", size)
-        self.multi_cell(self.pw, 5.5, t)
+        # Split on newlines so \n is never passed as a glyph to the font renderer.
+        # Each paragraph is rendered as its own multi_cell; blank lines add spacing.
+        paragraphs = t.split("\n")
+        for para in paragraphs:
+            stripped = para.strip()
+            if stripped:
+                self.multi_cell(self.pw, 5.5, stripped)
+            else:
+                self.ln(3)   # blank line between paragraphs
         self.ln(1)
 
     # -- Data renderers --
@@ -538,13 +546,21 @@ class MedicalPDF(FPDF):
         else:
             self.ln(1)
 
-    def render_table(self, headers, rows, col_widths=None):
+    def render_table(self, headers, rows, col_widths=None, multiline_cols=None):
+        """
+        multiline_cols: set of column indexes that should use multi_cell.
+        e.g. {0} means first column wraps, rest are single-line.
+        If None, all columns use single-line cell (original behaviour).
+        """
         if not rows:
             self.empty_row()
             return
+
         n = len(headers)
         cws = col_widths or [self.pw / n] * n
-        # header row
+        ml_cols = multiline_cols or set()
+
+        # ── Header row ──
         self._c(_C_ROW_HEAD, fill=True)
         self._c(_C_BORDER, draw=True)
         self.set_line_width(0.2)
@@ -553,13 +569,58 @@ class MedicalPDF(FPDF):
         for h, w in zip(headers, cws):
             self.cell(w, 7, h, border=1, fill=True)
         self.ln()
-        # data rows
+
+        # ── Data rows ──
         self.set_font("Thai", "", 9)
         self._c(_C_WHITE, fill=True)
+
         for row in rows:
-            for val, w in zip(row, cws):
-                self.cell(w, 6, str(val)[:90], border=1, fill=True)
-            self.ln()
+            # Check if this row has any multiline column
+            if not ml_cols:
+                # Fast path: all single-line (original behaviour)
+                for val, w in zip(row, cws):
+                    safe = str(val).replace("\r", " ").replace("\n", " ")
+                    self.cell(w, 6, safe, border=1, fill=True)
+                self.ln()
+                continue
+
+            # ── Multiline row: measure height first ──
+            x_start = self.get_x()
+            y_start = self.get_y()
+
+            # Step 1: Draw multiline columns first to find max row height
+            y_after = y_start
+            for i, (val, w) in enumerate(zip(row, cws)):
+                if i in ml_cols:
+                    self.set_xy(x_start + sum(cws[:i]), y_start)
+                    self._c(_C_WHITE, fill=True)
+                    # split on \n so the font never sees it as a glyph
+                    lines = str(val).replace("\r", "").split("\n")
+                    for line in lines:
+                        stripped = line.strip()
+                        if stripped:
+                            self.multi_cell(w, 6, stripped, border=0, fill=True)
+                        else:
+                            self.ln(3)
+                    # draw border rect over the cell
+                    cell_h = self.get_y() - y_start
+                    self._c(_C_BORDER, draw=True)
+                    self.rect(x_start + sum(cws[:i]), y_start, w, cell_h)
+                    y_after = max(y_after, self.get_y())
+
+            row_h = y_after - y_start
+
+            # Step 2: Draw single-line columns with the measured row height
+            for i, (val, w) in enumerate(zip(row, cws)):
+                if i not in ml_cols:
+                    self.set_xy(x_start + sum(cws[:i]), y_start)
+                    self._c(_C_WHITE, fill=True)
+                    safe = str(val).replace("\r", " ").replace("\n", " ")
+                    self.cell(w, row_h, safe, border=1, fill=True, align="C")
+
+            # Step 3: Advance cursor past the row
+            self.set_xy(x_start, y_after)
+
         self.ln(2)
 
     def render_patient(self, pet, customer):
@@ -596,7 +657,8 @@ class MedicalPDF(FPDF):
             y_start = self.get_y()
             x_start = self.get_x()
             value_w = self.pw - LW
-            value_str = str(value)  # no [:100] truncation
+            # Collapse newlines to spaces so they never hit the glyph renderer
+            value_str = str(value).replace("\r", " ").replace("\n", " ")
 
             # ── Step 1: Draw value multi_cell first to let it expand ──
             self.set_font("Thai", "", 10)
@@ -698,8 +760,8 @@ class MedicalPDF(FPDF):
             ["ชื่อวัคซีน", "รายละเอียด", "วันที่", "สถานะ"],
             [
                 (
-                    txt(v.get("vaccine_name") or v.get("content")) or "-",
-                    txt(v.get("content")),
+                    strip_html_rich(v.get("vaccine_name") or v.get("content")) or "-",
+                    strip_html_rich(v.get("content")),
                     fmt_dt(v.get("timestamp")),
                     "ใช้งาน" if v.get("status") == 1 else "-",
                 )
@@ -723,6 +785,7 @@ class MedicalPDF(FPDF):
             ["แผนการรักษา", "วันที่"],
             [(strip_html(t["content"]), fmt_dt(t["timestamp"])) for t in treatments],
             col_widths=[self.pw * 0.72, self.pw * 0.28],
+            multiline_cols={0},   # ← col 0 wraps
         )
 
         # 5. Reporting Symptoms
@@ -772,7 +835,7 @@ class MedicalPDF(FPDF):
             ("การตรวจร่างกาย (Physical)",        strip_html_rich(ah.get("physical"))),
             ("Differential Diagnosis",           strip_html_rich(ah.get("differential"))),
             ("Final Diagnosis",                  strip_html_rich(ah.get("final"))),
-            ("การพยากรณ์โรค (Prognosis)",        txt(ah.get("prognosis"))),
+            ("การพยากรณ์โรค (Prognosis)",        strip_html_rich(ah.get("prognosis"))),
         ]:
             if field and field.strip():
                 self.sub_label(label)
@@ -855,9 +918,9 @@ class MedicalPDF(FPDF):
         self.render_table(
             ["เวลา", "รายละเอียด", "ผู้ดูแล"],
             [
-                (txt(r.get("monitor_other_time")),
-                 txt(r.get("monitor_other_content")),
-                 txt(r.get("veterinary")))
+                (strip_html_rich(r.get("monitor_other_time")),
+                 strip_html_rich(r.get("monitor_other_content")),
+                 strip_html_rich(r.get("veterinary")))
                 for r in other_rows
             ],
             col_widths=[self.pw*0.12, self.pw*0.63, self.pw*0.25],
@@ -869,9 +932,9 @@ class MedicalPDF(FPDF):
             ["ช่วงเวลา", "แผนการดูแล", "ผู้ดูแล"],
             [
                 (
-                    f"{txt(r.get('monitor_plan_time_set1'))}-{txt(r.get('monitor_plan_time_set2'))}",
-                    txt(r.get("monitor_plan_content")),
-                    txt(r.get("veterinary")),
+                    f"{strip_html_rich(r.get('monitor_plan_time_set1'))}-{strip_html_rich(r.get('monitor_plan_time_set2'))}",
+                    strip_html_rich(r.get("monitor_plan_content")),
+                    strip_html_rich(r.get("veterinary")),
                 )
                 for r in plan_rows
             ],
@@ -883,9 +946,9 @@ class MedicalPDF(FPDF):
         self.render_table(
             ["เวลา", "รายละเอียด", "ผู้ดูแล"],
             [
-                (txt(r.get("monitor_talk_time")),
-                 txt(r.get("monitor_talk_content")),
-                 txt(r.get("veterinary")))
+                (strip_html_rich(r.get("monitor_talk_time")),
+                 strip_html_rich(r.get("monitor_talk_content")),
+                 strip_html_rich(r.get("veterinary")))
                 for r in talk_rows
             ],
             col_widths=[self.pw*0.12, self.pw*0.63, self.pw*0.25],
@@ -896,9 +959,9 @@ class MedicalPDF(FPDF):
         self.render_table(
             ["เวลา", "รายละเอียด", "ผู้ดูแล"],
             [
-                (txt(r.get("monitor_other_time")),
-                 txt(r.get("monitor_other_content")),
-                 txt(r.get("veterinary")))
+                (strip_html_rich(r.get("monitor_other_time")),
+                 strip_html_rich(r.get("monitor_other_content")),
+                 strip_html_rich(r.get("veterinary")))
                 for r in treatment_rows
             ],
             col_widths=[self.pw*0.12, self.pw*0.63, self.pw*0.25],
