@@ -160,14 +160,14 @@ def _sanitize_multiline(s: str) -> str:
     lines = s.split("\n")
     cleaned = [_sanitize(re.sub(r"[ \t]+", " ", ln).strip()) for ln in lines]
     result = "\n".join(cleaned)
-    result = re.sub(r"\n{3,}", "\n\n", result)   # collapse excess blank lines
+    result = re.sub(r"\n{2,}", "\n", result)   # collapse all consecutive blank lines to one separator
     return result.strip()
 
 
 class _RichHTMLParser(HTMLParser):
     """HTML parser that converts block/list tags to newlines and bullets."""
-    _BLOCK_END = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
-                  "tr", "blockquote"}
+    _BLOCK_TAGS = {"p", "div", "h1", "h2", "h3", "h4", "h5", "h6",
+                   "tr", "blockquote", "ul", "ol"}
 
     def __init__(self):
         super().__init__()
@@ -178,9 +178,12 @@ class _RichHTMLParser(HTMLParser):
             self._parts.append("\n")
         elif tag == "li":
             self._parts.append("\n- ")
+        elif tag in self._BLOCK_TAGS:
+            # Ensure a newline before the block's content so paragraphs never merge
+            self._parts.append("\n")
 
     def handle_endtag(self, tag):
-        if tag in self._BLOCK_END:
+        if tag in self._BLOCK_TAGS:
             self._parts.append("\n")
         elif tag == "li":
             self._parts.append("\n")
@@ -266,7 +269,8 @@ def get_physical_exam(conn, queue_uid):
     with conn.cursor() as cur:
         cur.execute(
             "SELECT more_info, pet_weight, pet_temperature, pet_bp, "
-            "pet_hr, pet_rr, pet_bcs, pet_mm, pet_crt, hydration "
+            "pet_hr, pet_rr, pet_bcs, pet_mm, pet_crt, hydration, "
+            "content, treatment, comment "
             "FROM queue_history WHERE queue_uid = %s", (queue_uid,))
         return cur.fetchone()
 
@@ -491,14 +495,11 @@ class MedicalPDF(FPDF):
             return
         self.set_font("Thai", "", size)
         # Split on newlines so \n is never passed as a glyph to the font renderer.
-        # Each paragraph is rendered as its own multi_cell; blank lines add spacing.
         paragraphs = t.split("\n")
         for para in paragraphs:
             stripped = para.strip()
             if stripped:
                 self.multi_cell(self.pw, 5.5, stripped)
-            else:
-                self.ln(3)   # blank line between paragraphs
         self.ln(1)
 
     # -- Data renderers --
@@ -546,6 +547,15 @@ class MedicalPDF(FPDF):
         else:
             self.ln(1)
 
+        for label, field in [
+            ("(PE Notes)", strip_html(pe.get("content"))),
+            ("(Treatment)", strip_html(pe.get("treatment"))),
+            ("(Comment)", strip_html(pe.get("comment"))),
+        ]:
+            if field and field.strip():
+                self.sub_label(label)
+                self.text_block(field.strip())
+
     def render_table(self, headers, rows, col_widths=None, multiline_cols=None):
         """
         multiline_cols: set of column indexes that should use multi_cell.
@@ -592,20 +602,20 @@ class MedicalPDF(FPDF):
             y_after = y_start
             for i, (val, w) in enumerate(zip(row, cws)):
                 if i in ml_cols:
-                    self.set_xy(x_start + sum(cws[:i]), y_start)
+                    cell_x = x_start + sum(cws[:i])
                     self._c(_C_WHITE, fill=True)
                     # split on \n so the font never sees it as a glyph
                     lines = str(val).replace("\r", "").split("\n")
                     for line in lines:
                         stripped = line.strip()
                         if stripped:
-                            self.multi_cell(w, 6, stripped, border=0, fill=True)
-                        else:
-                            self.ln(3)
+                            self.set_xy(cell_x, self.get_y())
+                            self.multi_cell(w, 6, stripped, border=0, fill=True,
+                                            new_x="LEFT", new_y="NEXT")
                     # draw border rect over the cell
                     cell_h = self.get_y() - y_start
                     self._c(_C_BORDER, draw=True)
-                    self.rect(x_start + sum(cws[:i]), y_start, w, cell_h)
+                    self.rect(cell_x, y_start, w, cell_h)
                     y_after = max(y_after, self.get_y())
 
             row_h = y_after - y_start
@@ -760,15 +770,15 @@ class MedicalPDF(FPDF):
             ["ชื่อวัคซีน", "รายละเอียด", "วันที่", "สถานะ"],
             [
                 (
-                    strip_html_rich(v.get("vaccine_name") or v.get("content")) or "-",
+                    strip_html(v.get("vaccine_name") or v.get("content")) or "-",
                     strip_html_rich(v.get("content")),
                     fmt_dt(v.get("timestamp")),
                     "ใช้งาน" if v.get("status") == 1 else "-",
                 )
                 for v in vaccines
             ],
-            col_widths=[self.pw * 0.30, self.pw * 0.34,
-                        self.pw * 0.24, self.pw * 0.12],
+            col_widths=[self.pw * 0.40, self.pw * 0.24,
+                        self.pw * 0.21, self.pw * 0.15],
         )
 
         # 3. Prognosis
