@@ -931,6 +931,7 @@ class MedicalPDF(FPDF):
             col_widths=[self.pw*0.10, self.pw*0.07, self.pw*0.07, self.pw*0.07,
                         self.pw*0.10, self.pw*0.07, self.pw*0.07, self.pw*0.10,
                         self.pw*0.35],
+                        multiline_cols={1}
         )
 
         # 3. Monitor: Eat
@@ -949,6 +950,7 @@ class MedicalPDF(FPDF):
             ],
             col_widths=[self.pw*0.10, self.pw*0.24, self.pw*0.15,
                         self.pw*0.31, self.pw*0.20],
+                        multiline_cols={1}
         )
 
         # 4. Monitor: General
@@ -969,6 +971,7 @@ class MedicalPDF(FPDF):
             ],
             col_widths=[self.pw*0.09, self.pw*0.15, self.pw*0.14, self.pw*0.14,
                         self.pw*0.09, self.pw*0.14, self.pw*0.25],
+                        multiline_cols={1}
         )
 
         # 5. Monitor: Other
